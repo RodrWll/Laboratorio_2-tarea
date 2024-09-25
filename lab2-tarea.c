@@ -2,59 +2,92 @@
 #include <stdio.h>   // Incluye la biblioteca estándar de entrada/salida
 #include <stdlib.h>  // Incluye la biblioteca estándar de C
 
-/* Programa que demuestra el paso de argumentos en la creación de threads */
+/* Programa que demuestra el paso de argumentos en la creación de threads con orden controlado */
 
 // Defino el arreglo de mensajes
-char *mensaje[2];
+char *mensaje[5];
+
+// Variables globales para controlar la sincronización
+int turno = 1;  // Variable que indica el turno de impresión de cada hilo
+pthread_mutex_t mutex;  // Mutex para proteger el acceso a la variable "turno"
+pthread_cond_t cond;    // Condicional para despertar a los hilos en orden
 
 // Función que ejecutarán los hilos
 void *imprimir(void *threadid) {
     int *id_ptr, taskid;
-    id_ptr = (int *) threadid; // Convierte el puntero de argumento a un puntero a entero
-    taskid = *id_ptr; // Obtiene el identificador de la tarea
-    printf("Thread %d: %s\n", taskid, mensaje[taskid - 1]); // Imprime el mensaje correspondiente al hilo
+    id_ptr = (int *) threadid; // Transforma el puntero de argumento a un puntero a entero
+    taskid = *id_ptr; // Otorga el identificador de la tarea
+
+    // Control de sincronización para imprimir en el orden deseado
+    pthread_mutex_lock(&mutex);  // Bloquea el mutex
+
+    while (taskid != turno) {
+        pthread_cond_wait(&cond, &mutex);  // Espera hasta que sea su turno
+    }
+
+    printf("Thread %d: %s\n", taskid, mensaje[taskid - 1]); // Imprime el mensaje correspondiente a su respectivo hilo
+
+    // Actualiza el turno según el orden especificado: 1, 3, 2, 5, 4
+    if (turno == 1) turno = 3;
+    else if (turno == 3) turno = 2;
+    else if (turno == 2) turno = 5;
+    else if (turno == 5) turno = 4;
+    else turno = 0;  // Finalización
+
+    pthread_cond_broadcast(&cond);  // Despierta a los otros hilos para que revisen si es su turno
+    pthread_mutex_unlock(&mutex);  // Desbloquea el mutex
+
     pthread_exit(NULL); // Finaliza el hilo
 }
 
 int main() {
-    // Defino las variables para los hilos
-    pthread_t hilo1, hilo2; // Identificadores de los hilos
-    int *taskid1, *taskid2; // Punteros para los identificadores de tarea
-    int nombre[2] = {1, 2}; // Arreglo con los identificadores de tarea
-    pthread_attr_t attr; // Atributos de los hilos
+    // Definición las variables para los hilos
+    pthread_t hilos[5]; // Identificadores de cada uno de los hilos
+    int *taskid[5]; // Punteros para los identificadores de las tareas
+    pthread_attr_t attr; // Atributos para los hilos
     int rc; // Variable para códigos de retorno
 
-    // Inicializo los mensajes
+    // Inicializo los mensajes con los siguientes arreglos
     mensaje[0] = "¡Soy el HILO 1!";
     mensaje[1] = "¡Soy el HILO 2!";
+    mensaje[2] = "¡Soy el HILO 3!";
+    mensaje[3] = "¡Soy el HILO 4!";
+    mensaje[4] = "¡Soy el HILO 5!";
 
-    // Imprimo mensaje del creador
-    printf("\n Creador: creo 2 hilos y espero a que acaben\n\n");
+    // Inicialización del mutex y condicional
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&cond, NULL);
 
-    // Creo atributos de hilos
+    // Imprimir el mensaje del creador de los hilos
+    printf("\nCreador: creo 5 hilos y espero a que acaben\n\n");
+
+    // Creo los atributos de los hilos
     pthread_attr_init(&attr); // Inicializa los atributos de los hilos
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE); // Establece el estado de separación a "joinable"
 
-    // Asigno valores a los identificadores de tarea
-    taskid1 = (int *) malloc(sizeof(int)); // Asigna memoria para el identificador de tarea 1
-    *taskid1 = 1; // Asigna el valor 1 al identificador de tarea 1
-    taskid2 = (int *) malloc(sizeof(int)); // Asigna memoria para el identificador de tarea 2
-    *taskid2 = 2; // Asigna el valor 2 al identificador de tarea 2
+    // Asigna valores a los identificadores de las tareas y crea los hilos
+    for (int i = 0; i < 5; i++) {
+        taskid[i] = (int *) malloc(sizeof(int)); // Asigna memoria para el identificador de tarea
+        *taskid[i] = i + 1; // Asigna el valor al identificador de la tarea
+        pthread_create(&hilos[i], &attr, (void *)imprimir, (void *)taskid[i]); // Crea el hilo
+    }
 
-    // Creo los hilos
-    pthread_create(&hilo1, &attr, (void *)imprimir, (void *)taskid1); // Crea el hilo 1
-    pthread_create(&hilo2, &attr, (void *)imprimir, (void *)taskid2); // Crea el hilo 2
-    
-    // Destruyo los atributos del hilo
-    pthread_attr_destroy(&attr); // Destruye los atributos de los hilos
+    // Elimino los atributos del hilo
+    pthread_attr_destroy(&attr);
 
     // Espero que los hilos finalicen
-    pthread_join(hilo1, NULL); // Espera a que el hilo 1 termine
-    pthread_join(hilo2, NULL); // Espera a que el hilo 2 termine
+    for (int i = 0; i < 5; i++) {
+        pthread_join(hilos[i], NULL); // Que cada hilo termine
+    }
 
-    // Mensaje final del creador
+    // Mensaje final 
     printf("Creador: los hilos terminaron y termino yo también\nAdiós...\n");
 
-    // Finalizo el hilo principal
-    pthread_exit(NULL); // Finaliza el hilo principal
+    // Destruye el mutex y la variable condicional
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cond);
+
+    // Finalizo 
+    pthread_exit(NULL);
 }
+
